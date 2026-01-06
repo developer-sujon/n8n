@@ -1,0 +1,322 @@
+# n8n Production Deployment
+# Queue mode + Worker Services + Task Runners
+# For enterprise workloads
+#
+# Architecture:
+# - Main service: UI/API/Webhooks + task runner broker + runners
+# - Worker services: Execute queued workflows + task runner broker + runners
+#   (Configured as services with internal_ports to expose broker port 5679)
+# - All Code nodes execute in sandboxed runners (secure isolation)
+#
+# Deploy with: doctl apps create --spec .do/examples/production.yaml
+# Auto-scale: Requires dedicated CPU instances (apps-d-*)
+
+name: n8n-production
+# Optionally you can chose a region where the deployment will be hosted
+# Otherwise, DO will chose the nearest region for you in the wizard
+# region: nyc
+
+# Main Service - UI, API, Webhooks
+services:
+  - name: n8n-main
+    image:
+      registry_type: GHCR
+      registry: ghcr.io
+      repository: n8n-io/n8n
+      tag: "1.122.2"
+    http_port: 5678
+    internal_ports:
+      - 5679  # Task Runner broker port
+    # instance_count: 1  # Not needed with autoscaling
+    instance_size_slug: apps-d-1vcpu-1gb
+
+    autoscaling:
+      min_instance_count: 1
+      max_instance_count: 2
+      metrics:
+        cpu:
+          percent: 80
+
+    health_check:
+      http_path: /healthz
+      initial_delay_seconds: 60
+      period_seconds: 10
+      timeout_seconds: 3
+      success_threshold: 1
+      failure_threshold: 3
+
+    envs:
+      # Database Configuration (PostgreSQL)
+      # Force PostgreSQL for ALL operations (prevents SQLite fallback)
+      - key: DB_TYPE
+        value: postgresdb
+      - key: DB_POSTGRESDB_HOST
+        value: ${n8n-postgres.HOSTNAME}
+      - key: DB_POSTGRESDB_PORT
+        value: ${n8n-postgres.PORT}
+      - key: DB_POSTGRESDB_DATABASE
+        value: ${n8n-postgres.DATABASE}
+      - key: DB_POSTGRESDB_USER
+        value: ${n8n-postgres.USERNAME}
+      - key: DB_POSTGRESDB_PASSWORD
+        value: ${n8n-postgres.PASSWORD}
+      # SSL required for DigitalOcean managed databases
+      - key: DB_POSTGRESDB_SSL_ENABLED
+        value: "true"
+      - key: DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED
+        value: "false"
+
+      # Queue Mode Configuration
+      - key: EXECUTIONS_MODE
+        value: queue
+      - key: QUEUE_BULL_REDIS_HOST
+        value: ${n8n-redis.HOSTNAME}
+      - key: QUEUE_BULL_REDIS_PORT
+        value: ${n8n-redis.PORT}
+      - key: QUEUE_BULL_REDIS_PASSWORD
+        value: ${n8n-redis.PASSWORD}
+      - key: QUEUE_BULL_REDIS_TLS
+        value: "true"
+
+      # n8n Configuration
+      # WEBHOOK_URL overrides N8N_HOST + N8N_PROTOCOL for external URLs
+      - key: WEBHOOK_URL
+        value: ${APP_URL}/
+      # App Platform runs behind a reverse proxy
+      - key: N8N_PROXY_HOPS
+        value: "1"
+
+      # Security - Rotate this key using: openssl rand -base64 32
+      - key: N8N_ENCRYPTION_KEY
+        value: <REQUIRED>
+        scope: RUN_TIME
+        type: SECRET
+
+      # Task Runner Broker (for runners)
+      - key: N8N_RUNNERS_ENABLED
+        value: "true"
+      - key: N8N_RUNNERS_MODE
+        value: external
+      - key: N8N_RUNNERS_BROKER_LISTEN_ADDRESS
+        value: 0.0.0.0
+      # Security - Rotate this token using: openssl rand -base64 32
+      - key: N8N_RUNNERS_AUTH_TOKEN
+        value: <REQUIRED>
+        scope: RUN_TIME
+        type: SECRET
+
+      # Timezone
+      - key: GENERIC_TIMEZONE
+        value: Europe/Amsterdam
+
+      # Template Tracking (for DigitalOcean analytics)
+      - key: APPPLAT_BASE_TEMPLATE
+        value: "n8n"
+      - key: APPPLAT_TEMPLATE_TYPE
+        value: "production-mode"
+      - key: APPPLAT_TEMPLATE_COMMIT_SHA
+        value: ${_self.COMMIT_HASH}
+
+      # ⚠️ PRODUCTION STORAGE: Configure Spaces for persistent file storage
+      # App Platform uses ephemeral storage - files are lost on container restart
+      #
+      # REQUIRED for production if you:
+      # - Handle file uploads/downloads in workflows
+      # - Use custom community nodes
+      # - Process binary data (images, PDFs, etc.)
+      #
+      # Setup: See PRODUCTION.md#persistent-storage-critical-for-production
+      # Quick setup (5 min):
+      #   1. Create Spaces bucket via DigitalOcean Control Panel
+      #   2. doctl spaces keys create n8n-storage-key
+      #   3. Uncomment and configure variables below
+      #
+      # - key: N8N_DEFAULT_BINARY_DATA_MODE
+      #   value: filesystem
+      # - key: AWS_ACCESS_KEY_ID
+      #   value: YOUR_SPACES_ACCESS_KEY
+      #   scope: RUN_TIME
+      #   type: SECRET
+      # - key: AWS_SECRET_ACCESS_KEY
+      #   value: YOUR_SPACES_SECRET_KEY
+      #   scope: RUN_TIME
+      #   type: SECRET
+      # - key: AWS_S3_BUCKET_NAME
+      #   value: n8n-storage-ams3
+      # - key: AWS_S3_ENDPOINT
+      #   value: https://ams3.digitaloceanspaces.com
+      # - key: AWS_S3_FORCE_PATH_STYLE
+      #   value: "true"
+
+  # Worker Service - Execute Workflows from Queue with Task Runners
+  # Internal-only service (no http_port, only internal_ports)
+  - name: n8n-worker
+    image:
+      registry_type: GHCR
+      registry: ghcr.io
+      repository: n8n-io/n8n
+      tag: "1.122.2"
+    internal_ports:
+      - 5679  # Task Runner broker port (for worker's own runners)
+    # instance_count: 1  # Not needed with autoscaling
+    instance_size_slug: apps-d-1vcpu-1gb
+
+    run_command: n8n worker
+
+    autoscaling:
+      min_instance_count: 1
+      max_instance_count: 2
+      metrics:
+        cpu:
+          percent: 80
+
+    envs:
+      # Database Configuration (PostgreSQL)
+      # Force PostgreSQL for ALL operations (must match main)
+      - key: DB_TYPE
+        value: postgresdb
+      - key: DB_POSTGRESDB_HOST
+        value: ${n8n-postgres.HOSTNAME}
+      - key: DB_POSTGRESDB_PORT
+        value: ${n8n-postgres.PORT}
+      - key: DB_POSTGRESDB_DATABASE
+        value: ${n8n-postgres.DATABASE}
+      - key: DB_POSTGRESDB_USER
+        value: ${n8n-postgres.USERNAME}
+      - key: DB_POSTGRESDB_PASSWORD
+        value: ${n8n-postgres.PASSWORD}
+      # SSL required for DigitalOcean managed databases
+      - key: DB_POSTGRESDB_SSL_ENABLED
+        value: "true"
+      - key: DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED
+        value: "false"
+
+      # Queue Mode Configuration
+      - key: EXECUTIONS_MODE
+        value: queue
+      - key: QUEUE_BULL_REDIS_HOST
+        value: ${n8n-redis.HOSTNAME}
+      - key: QUEUE_BULL_REDIS_PORT
+        value: ${n8n-redis.PORT}
+      - key: QUEUE_BULL_REDIS_PASSWORD
+        value: ${n8n-redis.PASSWORD}
+      - key: QUEUE_BULL_REDIS_TLS
+        value: "true"
+      - key: QUEUE_HEALTH_CHECK_ACTIVE
+        value: "true"
+
+      # Worker Concurrency
+      - key: N8N_CONCURRENCY_PRODUCTION_LIMIT
+        value: "10"
+
+      # MUST MATCH MAIN SERVICE!
+      # Security - Rotate this key using: openssl rand -base64 32
+      - key: N8N_ENCRYPTION_KEY
+        value: <REQUIRED>
+        scope: RUN_TIME
+        type: SECRET
+
+      # Task Runner Broker Configuration (worker acts as broker for its own runners)
+      - key: N8N_RUNNERS_ENABLED
+        value: "true"
+      - key: N8N_RUNNERS_MODE
+        value: external
+      - key: N8N_RUNNERS_BROKER_LISTEN_ADDRESS
+        value: 0.0.0.0
+      # MUST MATCH MAIN SERVICE!
+      # Security - Rotate this token using: openssl rand -base64 32
+      - key: N8N_RUNNERS_AUTH_TOKEN
+        value: <REQUIRED>
+        scope: RUN_TIME
+        type: SECRET
+
+      # Persistent File Storage (SAME AS MAIN!)
+      # Uncomment if using Spaces (must match main service configuration)
+      # - key: N8N_DEFAULT_BINARY_DATA_MODE
+      #   value: filesystem
+      # - key: AWS_ACCESS_KEY_ID
+      #   value: YOUR_SPACES_ACCESS_KEY
+      #   scope: RUN_TIME
+      #   type: SECRET
+      # - key: AWS_SECRET_ACCESS_KEY
+      #   value: YOUR_SPACES_SECRET_KEY
+      #   scope: RUN_TIME
+      #   type: SECRET
+      # - key: AWS_S3_BUCKET_NAME
+      #   value: n8n-storage-ams3
+      # - key: AWS_S3_ENDPOINT
+      #   value: https://ams3.digitaloceanspaces.com
+      # - key: AWS_S3_FORCE_PATH_STYLE
+      #   value: "true"
+
+# Task Runners - Execute JavaScript/Python Code
+workers:
+  # Runners for main service
+  - name: n8n-runner-main
+    image:
+      registry_type: GHCR
+      registry: ghcr.io
+      repository: n8n-io/runners
+      tag: "1.122.2"
+    # instance_count: 2  # Not needed with autoscaling
+    instance_size_slug: apps-d-1vcpu-1gb
+
+    autoscaling:
+      min_instance_count: 1
+      max_instance_count: 2
+      metrics:
+        cpu:
+          percent: 80
+
+    envs:
+      # Connect to main service's runner broker
+      - key: N8N_RUNNERS_TASK_BROKER_URI
+        value: http://n8n-main:5679
+      # MUST MATCH MAIN SERVICE TOKEN!
+      # Security - Rotate this token using: openssl rand -base64 32
+      - key: N8N_RUNNERS_AUTH_TOKEN
+        value: <REQUIRED>
+        scope: RUN_TIME
+        type: SECRET
+
+  # Runners for worker service
+  - name: n8n-runner-worker
+    image:
+      registry_type: GHCR
+      registry: ghcr.io
+      repository: n8n-io/runners
+      tag: "1.122.2"
+    # instance_count: 2  # Not needed with autoscaling
+    instance_size_slug: apps-d-1vcpu-1gb
+
+    autoscaling:
+      min_instance_count: 1
+      max_instance_count: 2
+      metrics:
+        cpu:
+          percent: 80
+
+    envs:
+      # Connect to worker service's runner broker
+      - key: N8N_RUNNERS_TASK_BROKER_URI
+        value: http://n8n-worker:5679
+      # MUST MATCH WORKER SERVICE TOKEN!
+      # Security - Rotate this token using: openssl rand -base64 32
+      - key: N8N_RUNNERS_AUTH_TOKEN
+        value: <REQUIRED>
+        scope: RUN_TIME
+        type: SECRET
+
+# Databases
+databases:
+  - name: n8n-postgres
+    engine: PG
+    version: "17"
+    production: true  # Production mode for HA
+    cluster_name: n8n-postgres
+
+  - name: n8n-redis
+    engine: VALKEY
+    version: "8"
+    production: true  # Production mode for HA
+    cluster_name: n8n-redis

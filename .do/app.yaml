@@ -1,0 +1,114 @@
+# Example App Spec for n8n on DigitalOcean App Platform
+# This file is for reference and can be used with: doctl apps create --spec .do/app.yaml
+# For Deploy-to-DO button, use .do/deploy.template.yaml instead
+
+name: n8n
+# Optionally you can chose a region where the deployment will be hosted
+# Otherwise, DO will chose the nearest region for you in the wizard
+# region: nyc
+
+services:
+  - name: n8n
+    image:
+      registry_type: GHCR
+      registry: ghcr.io
+      repository: n8n-io/n8n
+      tag: "latest"  # Use "latest" for newest features, or pin to specific version (e.g., "1.122.2") for stability
+    http_port: 5678
+    instance_count: 1
+    instance_size_slug: apps-s-1vcpu-1gb
+
+    health_check:
+      http_path: /healthz
+      initial_delay_seconds: 60
+      period_seconds: 10
+      timeout_seconds: 3
+      success_threshold: 1
+      failure_threshold: 3
+
+    envs:
+      # Database Configuration (PostgreSQL)
+      # Force PostgreSQL for ALL operations (prevents SQLite fallback)
+      - key: DB_TYPE
+        value: postgresdb
+      - key: DB_POSTGRESDB_HOST
+        value: ${n8n-postgres.HOSTNAME}
+      - key: DB_POSTGRESDB_PORT
+        value: ${n8n-postgres.PORT}
+      - key: DB_POSTGRESDB_DATABASE
+        value: ${n8n-postgres.DATABASE}
+      - key: DB_POSTGRESDB_USER
+        value: ${n8n-postgres.USERNAME}
+      - key: DB_POSTGRESDB_PASSWORD
+        value: ${n8n-postgres.PASSWORD}
+      # SSL required for DigitalOcean managed databases
+      - key: DB_POSTGRESDB_SSL_ENABLED
+        value: "true"
+      - key: DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED
+        value: "false"
+
+      # n8n Configuration
+      # WEBHOOK_URL overrides N8N_HOST + N8N_PROTOCOL for external URLs
+      - key: WEBHOOK_URL
+        value: ${APP_URL}/
+      # App Platform runs behind a reverse proxy
+      - key: N8N_PROXY_HOPS
+        value: "1"
+
+      # Security - Rotate this key using: openssl rand -base64 32
+      - key: N8N_ENCRYPTION_KEY
+        value: <REQUIRED>
+        scope: RUN_TIME
+        type: SECRET
+
+      # Timezone
+      - key: GENERIC_TIMEZONE
+        value: Europe/Amsterdam
+
+      # Template Tracking (for DigitalOcean analytics)
+      - key: APPPLAT_BASE_TEMPLATE
+        value: "n8n"
+      - key: APPPLAT_TEMPLATE_TYPE
+        value: "simple-mode"
+      - key: APPPLAT_TEMPLATE_COMMIT_SHA
+        value: ${_self.COMMIT_HASH}
+
+      # ⚠️ PRODUCTION STORAGE: Configure Spaces for persistent file storage
+      # App Platform uses ephemeral storage - files are lost on container restart
+      #
+      # REQUIRED for production if you:
+      # - Handle file uploads/downloads in workflows
+      # - Use custom community nodes
+      # - Process binary data (images, PDFs, etc.)
+      #
+      # Setup: See PRODUCTION.md#persistent-storage-critical-for-production
+      # Quick setup (5 min):
+      #   1. Create Spaces bucket via DigitalOcean Control Panel
+      #   2. doctl spaces keys create n8n-storage-key
+      #   3. Uncomment and configure variables below
+      #
+      # Cost: $5/month for 250GB + $0.02/GB thereafter
+      #
+      # - key: N8N_DEFAULT_BINARY_DATA_MODE
+      #   value: filesystem
+      # - key: AWS_ACCESS_KEY_ID
+      #   value: YOUR_SPACES_ACCESS_KEY
+      #   scope: RUN_TIME
+      #   type: SECRET
+      # - key: AWS_SECRET_ACCESS_KEY
+      #   value: YOUR_SPACES_SECRET_KEY
+      #   scope: RUN_TIME
+      #   type: SECRET
+      # - key: AWS_S3_BUCKET_NAME
+      #   value: n8n-storage-ams3
+      # - key: AWS_S3_ENDPOINT
+      #   value: https://ams3.digitaloceanspaces.com
+      # - key: AWS_S3_FORCE_PATH_STYLE
+      #   value: "true"
+
+databases:
+  - name: n8n-postgres
+    engine: PG
+    version: "17"
+    production: false
+    cluster_name: n8n-postgres
