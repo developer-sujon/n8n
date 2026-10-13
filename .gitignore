@@ -1,0 +1,21 @@
+# Private keys and secrets
+*.pem
+*.key
+n8n-server-key.pem
+.env
+.env.local
+.env.*.local
+
+# Persistent storage & Database volumes
+data/
+postgres_data/
+redis_data/
+backups/
+letsencrypt/
+
+# OS and Editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
