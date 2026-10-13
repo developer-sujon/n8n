@@ -22,12 +22,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
+          ENV_FILE: ${{ secrets.ENV_FILE }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER || 'ubuntu' }}
           key: ${{ secrets.EC2_SSH_KEY }}
           port: 22
-          envs: GH_TOKEN,REPO
+          envs: GH_TOKEN,REPO,ENV_FILE
           script_stop: true
           script: |
             echo "Starting n8n deployment on AWS EC2..."
@@ -50,7 +51,10 @@ jobs:
               bash setup-server.sh
             fi
 
-            if [ ! -f .env ]; then
+            if [ -n "$ENV_FILE" ]; then
+              echo "$ENV_FILE" > .env
+              echo "Updated .env from GitHub Secrets."
+            elif [ ! -f .env ]; then
               cp .env.example .env
             fi
 
