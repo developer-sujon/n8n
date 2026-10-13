@@ -99,7 +99,7 @@ services:
     image: docker.n8n.io/n8nio/n8n:latest
     container_name: n8n-webhook
     restart: unless-stopped
-    command: n8n webhook
+    command: webhook
     depends_on:
       postgres:
         condition: service_healthy
@@ -144,7 +144,7 @@ services:
   n8n-worker:
     image: docker.n8n.io/n8nio/n8n:latest
     restart: unless-stopped
-    command: n8n worker --concurrency=10
+    command: worker --concurrency=10
     depends_on:
       postgres:
         condition: service_healthy

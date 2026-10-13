@@ -71,11 +71,7 @@ docker compose up -d --no-deps n8n-webhook
 WORKER_COUNT=${N8N_WORKERS:-2}
 docker compose up -d --no-deps --scale n8n-worker="$WORKER_COUNT" n8n-worker
 
-if docker ps --format '{{.Names}}' | grep -q "n8n-proxy"; then
-  docker exec n8n-proxy nginx -s reload 2>/dev/null || docker compose up -d n8n-proxy
-else
-  docker compose up -d n8n-proxy
-fi
+docker compose up -d --force-recreate n8n-proxy
 
 docker image prune -f >/dev/null 2>&1 || true
 
