@@ -1,0 +1,60 @@
+name: Deploy n8n Production to AWS EC2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-n8n-ec2-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy to EC2
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Deploy via SSH to EC2
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER || 'ubuntu' }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          envs: GH_TOKEN,REPO
+          script_stop: true
+          script: |
+            echo "Starting n8n deployment on AWS EC2..."
+
+            REPO_DIR="$HOME/n8n-server"
+            AUTH_URL="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+
+            if [ ! -d "$REPO_DIR/.git" ]; then
+              rm -rf "$REPO_DIR"
+              git clone "$AUTH_URL" "$REPO_DIR"
+            fi
+
+            cd "$REPO_DIR"
+            git remote set-url origin "$AUTH_URL"
+            git fetch origin main
+            git reset --hard origin/main
+
+            if ! command -v docker &> /dev/null; then
+              chmod +x setup-server.sh
+              bash setup-server.sh
+            fi
+
+            if [ ! -f .env ]; then
+              cp .env.example .env
+            fi
+
+            chmod +x deploy.sh scale.sh backup.sh
+            bash deploy.sh
+
+            echo "n8n deployed successfully!"
