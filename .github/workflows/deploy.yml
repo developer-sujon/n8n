@@ -22,13 +22,19 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
+          DOMAIN_NAME: ${{ secrets.DOMAIN_NAME || 'n8n.yupsis.com' }}
+          N8N_ADMIN_EMAIL: ${{ secrets.N8N_ADMIN_EMAIL }}
+          N8N_ADMIN_PASSWORD: ${{ secrets.N8N_ADMIN_PASSWORD }}
+          N8N_ENCRYPTION_KEY: ${{ secrets.N8N_ENCRYPTION_KEY }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
           ENV_FILE: ${{ secrets.ENV_FILE }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER || 'ubuntu' }}
           key: ${{ secrets.EC2_SSH_KEY }}
           port: 22
-          envs: GH_TOKEN,REPO,ENV_FILE
+          envs: GH_TOKEN,REPO,DOMAIN_NAME,N8N_ADMIN_EMAIL,N8N_ADMIN_PASSWORD,N8N_ENCRYPTION_KEY,POSTGRES_PASSWORD,REDIS_PASSWORD,ENV_FILE
           script_stop: true
           script: |
             echo "Starting n8n deployment on AWS EC2..."
@@ -51,9 +57,21 @@ jobs:
               bash setup-server.sh
             fi
 
-            if [ -n "$ENV_FILE" ]; then
+            # Construct .env from individual GitHub secrets if provided
+            if [ -n "$POSTGRES_PASSWORD" ] && [ -n "$N8N_ENCRYPTION_KEY" ]; then
+              cat << EOF > .env
+            DOMAIN_NAME=${DOMAIN_NAME}
+            N8N_ADMIN_EMAIL=${N8N_ADMIN_EMAIL}
+            N8N_ADMIN_PASSWORD=${N8N_ADMIN_PASSWORD}
+            N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+            POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+            REDIS_PASSWORD=${REDIS_PASSWORD}
+            EOF
+              sed -i 's/^[ \t]*//' .env
+              echo "Configured .env from individual GitHub Secrets."
+            elif [ -n "$ENV_FILE" ]; then
               echo "$ENV_FILE" > .env
-              echo "Updated .env from GitHub Secrets."
+              echo "Configured .env from ENV_FILE secret."
             elif [ ! -f .env ]; then
               cp .env.example .env
             fi
