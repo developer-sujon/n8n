@@ -54,10 +54,10 @@ services:
       redis:
         condition: service_healthy
     environment:
-      - N8N_HOST=${DOMAIN_NAME:-localhost}
+      - N8N_HOST=${DOMAIN_NAME:-n8n.yupsis.com}
       - N8N_PORT=5678
       - N8N_PROTOCOL=https
-      - WEBHOOK_URL=https://${DOMAIN_NAME:-localhost}/
+      - WEBHOOK_URL=https://${DOMAIN_NAME:-n8n.yupsis.com}/
       - DB_TYPE=postgresdb
       - DB_POSTGRESDB_HOST=postgres
       - DB_POSTGRESDB_PORT=5432
@@ -108,10 +108,10 @@ services:
       n8n-main:
         condition: service_healthy
     environment:
-      - N8N_HOST=${DOMAIN_NAME:-localhost}
+      - N8N_HOST=${DOMAIN_NAME:-n8n.yupsis.com}
       - N8N_PORT=5678
       - N8N_PROTOCOL=https
-      - WEBHOOK_URL=https://${DOMAIN_NAME:-localhost}/
+      - WEBHOOK_URL=https://${DOMAIN_NAME:-n8n.yupsis.com}/
       - DB_TYPE=postgresdb
       - DB_POSTGRESDB_HOST=postgres
       - DB_POSTGRESDB_PORT=5432

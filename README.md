@@ -1,114 +1,102 @@
-# High-Scale n8n Production Server
+# n8n on AWS EC2 & Docker (High-Scale Production)
 
-Production-ready, horizontally scalable n8n deployment with **Queue Mode**, PostgreSQL 16, Redis BullMQ, dedicated webhook handlers, and Nginx reverse proxy. Built for 99.9% uptime and zero-downtime rolling updates.
+Deploy the powerful workflow automation platform [n8n](https://n8n.io) to AWS EC2 using Docker Compose, Queue Mode, PostgreSQL 16, Redis BullMQ, and Nginx reverse proxy. Built for 99.9% uptime and zero-downtime rolling updates.
 
 ---
 
 ## 🏛️ Architecture Overview
 
 ```
-                               ┌────────────────────────────────┐
-                               │     Incoming Webhooks & UI     │
-                               │   (Cloudflare / Public Web)    │
-                               └───────────────┬────────────────┘
-                                               │ Port 80 / 443
-                                               ▼
-                              ┌──────────────────────────────────┐
-                              │     Nginx Reverse Proxy & LB     │
-                              │           (n8n-proxy)            │
-                              └────────┬─────────────────┬───────┘
-                                       │                 │
-                /rest/push & UI & API  │                 │ /webhook/*
-                                       ▼                 ▼
-                        ┌──────────────────┐  ┌──────────────────┐
-                        │     n8n-main     │  │   n8n-webhook    │
-                        │ (UI & Scheduler) │  │  (Event Ingest)  │
-                        └────────┬─────────┘  └────────┬─────────┘
-                                 │                     │
-                    Dispatches   │                     │ Dispatches
-                    Jobs         ▼                     ▼ Jobs
-                        ┌────────────────────────────────────────┐
-                        │             Redis (BullMQ)             │
-                        └──────────────────┬─────────────────────┘
-                                           │ Pulls Tasks
-                                           ▼
-                        ┌────────────────────────────────────────┐
-                        │        n8n-worker Cluster              │
-                        │   (Scalable: 1, 2, 4, 8+ instances)    │
-                        └──────────────────┬─────────────────────┘
-                                           │
-                                           │ Reads / Writes
-                                           ▼
-                        ┌────────────────────────────────────────┐
-                        │          PostgreSQL 16 DB              │
-                        │    (Workflows, Executions, State)      │
-                        └────────────────────────────────────────┘
+                 Incoming Traffic (Cloudflare / Web)
+                                │
+                                ▼
+                       Nginx Reverse Proxy
+                         (Port 80 / 443)
+                         /             \
+      UI & WebSocket    /               \  /webhook/*
+                       ▼                 ▼
+                   n8n-main         n8n-webhook
+               (UI & Scheduler)  (High Throughput Ingest)
+                       \                 /
+                        ▼               ▼
+                        Redis (BullMQ Queue)
+                                │
+                                ▼
+                        n8n-worker Cluster
+                       (Scalable 1, 2, 4+)
+                                │
+                                ▼
+                        PostgreSQL 16 DB
 ```
 
 ---
 
-## 🚀 Key Features
+## ⚡ Deployment Highlights
 
-1. **Queue Mode Execution (`EXECUTIONS_MODE=queue`)**:
-   - Webhook reception and workflow executions are decoupled. Heavy workflows run asynchronously in background workers, preventing UI freeze and webhook timeouts.
-2. **Dedicated Webhook Node (`n8n-webhook`)**:
-   - Directs all `/webhook/` traffic to an isolated high-throughput webhook daemon.
-3. **Horizontal Worker Scaling**:
-   - Dynamically scale worker nodes anytime via `./scale.sh <number_of_workers>`.
-4. **Zero-Downtime Deployment (`deploy.sh`)**:
-   - Rolling updates with automated health checking against `/healthz` before traffic handoff.
-5. **Disk Protection & Auto-Pruning**:
-   - Execution data automatically pruned after 7 days (`EXECUTIONS_DATA_PRUNE=true`) to prevent database bloat.
-6. **Automated Backups (`backup.sh`)**:
-   - One-command compressed PostgreSQL database dumps with 14-day retention cleanup.
+- 🔄 **Queue Mode Execution:** UI, Webhooks, and Workers are completely decoupled.
+- ⚡ **Dedicated Webhook Handler:** Independent high-throughput worker for `/webhook/*` endpoints.
+- 📈 **Horizontal Worker Scaling:** Add or remove background workers anytime with zero downtime.
+- 🛡️ **Zero-Downtime Deployment:** Rolling container restarts with automated health check verification.
+- 💾 **Automated Backups:** Daily compressed PostgreSQL dumps with 14-day auto-retention cleanup.
 
 ---
 
-## ⚙️ Environment Variables (`.env`)
+## ⚙️ Configuration (`.env`)
 
-Only **4 essential variables** are required:
-
-| Variable | Description |
-|---|---|
-| `DOMAIN_NAME` | Your n8n public domain or IP (e.g. `n8n.yourdomain.com`) |
-| `N8N_ENCRYPTION_KEY` | Master encryption key for n8n credentials |
-| `POSTGRES_PASSWORD` | PostgreSQL database root password |
-| `REDIS_PASSWORD` | Redis queue authentication password |
-
----
-
-## 🛠️ Deployment Instructions
-
-### Option A: Local / Direct VPS Execution
+Copy `.env.example` to `.env` and fill in your values:
 
 ```bash
-# 1. Clone repository to server
-git clone <your-repo-url> n8n-server
+DOMAIN_NAME=n8n.yourdomain.com
+N8N_ADMIN_EMAIL=admin@yourdomain.com
+N8N_ADMIN_PASSWORD=your_secure_password
+N8N_ENCRYPTION_KEY=your_encryption_key_here
+POSTGRES_PASSWORD=your_postgres_password_here
+REDIS_PASSWORD=your_redis_password_here
+```
+
+---
+
+## 🚀 Deployment Methods
+
+### Option 1: Remote One-Command Deploy (From Local Machine)
+
+Deploy directly to your EC2 instance using your `.pem` key:
+
+```bash
+./remote-deploy.sh <EC2_PUBLIC_IP> ubuntu ./n8n-server-key.pem
+```
+
+This will automatically:
+1. Connect via SSH.
+2. Initialize Docker, Compose, and 3GB Swap space on the VPS (if not installed).
+3. Sync repository configuration.
+4. Launch n8n in high-scale Queue Mode.
+
+---
+
+### Option 2: Direct on AWS Server
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/developer-sujon/n8n.git n8n-server
 cd n8n-server
 
 # 2. Configure environment
 cp .env.example .env
 nano .env
 
-# 3. Initial server setup (Installs Docker, Compose, and Firewall)
+# 3. Initialize server environment (Docker, Firewall, Swap)
 ./setup-server.sh
 
 # 4. Deploy n8n cluster
 ./deploy.sh
 ```
 
-### Option B: Remote One-Command Deployment (Using SSH Key)
-
-From your local machine:
-```bash
-./remote-deploy.sh <SERVER_IP> ubuntu ./n8n-server-key.pem
-```
-
 ---
 
 ## 📈 Worker Scaling
 
-Scale background workers dynamically without downtime:
+Scale background worker processes dynamically based on workload:
 
 ```bash
 # Scale to 4 workers
@@ -120,20 +108,33 @@ Scale background workers dynamically without downtime:
 
 ---
 
-## 💾 Backups & Disaster Recovery
+## 💾 Database Backups
 
 ```bash
-# Take manual database backup
+# Create manual compressed backup
 ./backup.sh
 
-# Backups are stored in ./backups/n8n_backup_YYYYMMDD_HHMMSS.sql.gz
+# Backups are saved to ./backups/n8n_backup_YYYYMMDD_HHMMSS.sql.gz
 ```
 
 ---
 
-## 📡 Health & Monitoring
+## 🌐 Domain & SSL Setup
 
-| Endpoint | Description |
-|---|---|
-| `GET /health` | Public HTTP health check probe for load balancers |
-| `GET /healthz` | n8n internal readiness probe |
+1. In Cloudflare or your DNS provider, create an **A Record**:
+   - **Name:** `n8n` (or your chosen subdomain)
+   - **IPv4 Address:** `<YOUR_EC2_PUBLIC_IP>`
+   - **Proxy status:** Proxied (Orange Cloud) for instant SSL, or DNS only.
+2. Visit `https://your-domain.com` in your browser.
+3. Log in with your admin credentials configured in `.env`.
+
+---
+
+## What is n8n?
+
+n8n is a **fair-code licensed workflow automation platform** — a self-hosted, scalable alternative to Zapier and Make.
+
+- 🔌 400+ built-in node integrations
+- 🎨 Visual canvas workflow builder
+- 🤖 Advanced AI Agent workflows with LangChain
+- 🔐 Self-hosted on your own AWS infrastructure — complete data ownership
