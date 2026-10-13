@@ -21,7 +21,7 @@ sudo chown -R 1000:1000 ./data 2>/dev/null || chown -R 1000:1000 ./data 2>/dev/n
 chmod -R 775 ./data 2>/dev/null || true
 
 # Generate SSL certificate if not exists (enables Cloudflare Full SSL on port 443)
-if [ ! -f ./nginx/certs/selfsigned.crt ]; then
+if [ ! -f ./nginx/certs/selfsigned.key ] || [ ! -f ./nginx/certs/selfsigned.crt ]; then
   echo "Generating SSL certificate for port 443..."
   openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
     -keyout ./nginx/certs/selfsigned.key \
