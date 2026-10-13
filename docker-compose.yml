@@ -126,7 +126,7 @@ services:
       - GENERIC_TIMEZONE=Asia/Dhaka
       - TZ=Asia/Dhaka
     volumes:
-      - ./data/n8n_main:/home/node/.n8n:ro
+      - ./data/n8n_main:/home/node/.n8n
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:5678/healthz"]
       interval: 10s
@@ -167,7 +167,7 @@ services:
       - GENERIC_TIMEZONE=Asia/Dhaka
       - TZ=Asia/Dhaka
     volumes:
-      - ./data/n8n_main:/home/node/.n8n:ro
+      - ./data/n8n_main:/home/node/.n8n
     logging:
       driver: "json-file"
       options:

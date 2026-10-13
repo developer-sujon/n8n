@@ -9,11 +9,16 @@ if [ ! -f .env ]; then
   exit 1
 fi
 
-# Load variables safely without breaking on special characters
 set -a
 # shellcheck disable=SC1091
 [ -f .env ] && . .env 2>/dev/null || true
 set +a
+
+# Prepare directories and fix permissions for n8n container user (UID 1000)
+echo "Preparing data directory permissions..."
+mkdir -p ./data/n8n_main ./postgres_data ./redis_data ./backups
+sudo chown -R 1000:1000 ./data 2>/dev/null || chown -R 1000:1000 ./data 2>/dev/null || true
+chmod -R 775 ./data 2>/dev/null || true
 
 echo "Pulling latest Docker images..."
 docker compose pull --quiet
