@@ -16,9 +16,18 @@ set +a
 
 # Prepare directories and fix permissions for n8n container user (UID 1000)
 echo "Preparing data directory permissions..."
-mkdir -p ./data/n8n_main ./postgres_data ./redis_data ./backups
+mkdir -p ./data/n8n_main ./postgres_data ./redis_data ./backups ./nginx/certs
 sudo chown -R 1000:1000 ./data 2>/dev/null || chown -R 1000:1000 ./data 2>/dev/null || true
 chmod -R 775 ./data 2>/dev/null || true
+
+# Generate SSL certificate if not exists (enables Cloudflare Full SSL on port 443)
+if [ ! -f ./nginx/certs/selfsigned.crt ]; then
+  echo "Generating SSL certificate for port 443..."
+  openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+    -keyout ./nginx/certs/selfsigned.key \
+    -out ./nginx/certs/selfsigned.crt \
+    -subj "/CN=n8n.yupsis.com" 2>/dev/null || true
+fi
 
 echo "Pulling latest Docker images..."
 docker compose pull --quiet
