@@ -57,20 +57,18 @@ jobs:
               bash setup-server.sh
             fi
 
-            # Construct .env from individual GitHub secrets if provided
+            # Safely configure .env
             if [ -n "$POSTGRES_PASSWORD" ] && [ -n "$N8N_ENCRYPTION_KEY" ]; then
-              cat << EOF > .env
-            DOMAIN_NAME=${DOMAIN_NAME}
-            N8N_ADMIN_EMAIL=${N8N_ADMIN_EMAIL}
-            N8N_ADMIN_PASSWORD=${N8N_ADMIN_PASSWORD}
-            N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
-            POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-            REDIS_PASSWORD=${REDIS_PASSWORD}
-            EOF
-              sed -i 's/^[ \t]*//' .env
+              printf "%s\n" \
+                "DOMAIN_NAME=${DOMAIN_NAME}" \
+                "N8N_ADMIN_EMAIL=${N8N_ADMIN_EMAIL}" \
+                "N8N_ADMIN_PASSWORD=${N8N_ADMIN_PASSWORD}" \
+                "N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}" \
+                "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" \
+                "REDIS_PASSWORD=${REDIS_PASSWORD}" > .env
               echo "Configured .env from individual GitHub Secrets."
             elif [ -n "$ENV_FILE" ]; then
-              echo "$ENV_FILE" > .env
+              printf "%s\n" "$ENV_FILE" > .env
               echo "Configured .env from ENV_FILE secret."
             elif [ ! -f .env ]; then
               cp .env.example .env

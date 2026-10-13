@@ -9,7 +9,11 @@ if [ ! -f .env ]; then
   exit 1
 fi
 
-export $(grep -v '^#' .env | xargs)
+# Load variables safely without breaking on special characters
+set -a
+# shellcheck disable=SC1091
+[ -f .env ] && . .env 2>/dev/null || true
+set +a
 
 echo "Pulling latest Docker images..."
 docker compose pull --quiet
